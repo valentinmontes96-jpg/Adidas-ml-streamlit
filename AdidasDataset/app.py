@@ -247,9 +247,9 @@ with tab_metricas:
 
     st.table(df_metricas)
 
-  st.info("""
-  **Interpretación técnica:**
-  * **MAE:** Indica en promedio por cuántas unidades difiere la predicción del valor real.
-  * **RMSE:** Penaliza con mayor peso los desvíos grandes en volúmenes de venta.
-  * **R²:** Representa la proporción de la varianza de las unidades vendidas que logra explicar el modelo (mientras más cercano a 1.0, mejor ajuste). El **Random Forest Regressor** supera ampliamente a la alternativa lineal al capturar relaciones no lineales entre regiones, precios y canales de venta.
-  """)
+    st.info("""
+    **Interpretación de las métricas:**
+    * **MAE (Error Absoluto Medio):** Indica en promedio por cuántas unidades difiere la predicción del valor real.
+    * **RMSE (Raíz del Error Cuadrático Medio):** Penaliza con mayor peso los errores grandes en las unidades vendidas.
+    * **R2 (Coeficiente de Determinación):** Representa qué proporción de la variación de las ventas explica el modelo (mientras más cercano a 1.0, mejor ajuste).
+    """)
