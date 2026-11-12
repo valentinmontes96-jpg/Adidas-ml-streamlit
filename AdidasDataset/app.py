@@ -36,6 +36,18 @@ precio_min = datos_modelo["precio_min"]
 precio_max = datos_modelo["precio_max"]
 precio_medio = datos_modelo["precio_medio"]
 
+# Armar catálogo plano de ubicaciones: "Ciudad (Estado)" -> (Region, State, City)
+mapa_ubicaciones = {}
+mapa_estado_region = {}
+for region, estados_dict in jerarquia_geo.items():
+    for estado, ciudades in estados_dict.items():
+        mapa_estado_region[estado] = region
+        for ciudad in ciudades:
+            etiqueta = f"{ciudad} ({estado})"
+            mapa_ubicaciones[etiqueta] = (region, estado, ciudad)
+
+lista_ubicaciones = sorted(list(mapa_ubicaciones.keys()))
+
 st.title("Predicción de Demanda - Adidas US Sales")
 st.write(
     "Aplicación para estimar las unidades vendidas y el total de ventas"
@@ -54,24 +66,21 @@ tab_prediccion, tab_lote, tab_metricas = st.tabs([
 with tab_prediccion:
     st.subheader("Parámetros de entrada")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**Ubicación**")
-        region_sel = st.selectbox("Región", options=list(jerarquia_geo.keys()))
-        estados_disponibles = list(jerarquia_geo[region_sel].keys())
-        state_sel = st.selectbox("Estado", options=estados_disponibles)
-        ciudades_disponibles = jerarquia_geo[region_sel][state_sel]
-        city_sel = st.selectbox("Ciudad", options=ciudades_disponibles)
+        ubicacion_sel = st.selectbox(
+            "Ubicación (Ciudad y Estado)", options=lista_ubicaciones
+        )
+        region_sel, state_sel, city_sel = mapa_ubicaciones[ubicacion_sel]
+        st.caption(f"Región asignada automáticamente: {region_sel}")
 
-    with col2:
-        st.markdown("**Producto y Canal**")
         retailer_sel = st.selectbox("Minorista (Retailer)", options=retailers)
-        product_sel = st.selectbox("Producto", options=productos)
         method_sel = st.selectbox("Método de venta", options=metodos_venta)
 
-    with col3:
-        st.markdown("**Precio y Fecha**")
+    with col2:
+        product_sel = st.selectbox("Producto", options=productos)
+
         price_sel = st.number_input(
             "Precio por unidad (USD)",
             min_value=float(max(5.0, precio_min)),
@@ -95,14 +104,13 @@ with tab_prediccion:
             12: "Diciembre",
         }
         month_sel = st.selectbox(
-            "Mes",
+            "Mes de venta",
             options=list(meses_nombres.keys()),
             format_func=lambda x: meses_nombres[x],
             index=5,
         )
-
         quarter_sel = (month_sel - 1) // 3 + 1
-        st.caption(f"Trimestre correspondiente: Q{quarter_sel}")
+        st.caption(f"Trimestre asignado automáticamente: Q{quarter_sel}")
 
     st.divider()
 
@@ -124,11 +132,11 @@ with tab_prediccion:
         ventas_estimadas = unidades_redondeadas * price_sel
 
         st.subheader("Resultados")
-        res_col1, res_col2, res_col3 = st.columns(3)
+        res_col1, res_col2 = st.columns(2)
 
         with res_col1:
             st.metric(
-                label="Unidades estimadas (Units Sold)",
+                label="Unidades estimadas a vender (Units Sold)",
                 value=f"{unidades_redondeadas}",
             )
         with res_col2:
@@ -136,13 +144,8 @@ with tab_prediccion:
                 label="Ventas totales estimadas (Total Sales)",
                 value=f"USD {ventas_estimadas:,.2f}",
             )
-        with res_col3:
-            st.metric(
-                label="Precio unitario",
-                value=f"USD {price_sel:,.2f}",
-            )
 
-        with st.expander("Ver datos de entrada enviados al modelo"):
+        with st.expander("Ver vector completo enviado al modelo"):
             st.dataframe(nuevo_ejemplo, use_container_width=True)
 
 # ==========================================
@@ -151,32 +154,29 @@ with tab_prediccion:
 with tab_lote:
     st.subheader("Cargar nuevos ejemplos desde un archivo CSV")
     st.write(
-        "El archivo debe contener las columnas: Retailer, Region, State, City,"
-        " Product, Sales Method, Price per Unit, Month, Quarter."
+        "El archivo requiere las columnas principales (la Región y el Trimestre"
+        " se calculan automáticamente si no están presentes): Retailer, State,"
+        " City, Product, Sales Method, Price per Unit, Month."
     )
 
     df_plantilla = pd.DataFrame([
         {
             "Retailer": "Foot Locker",
-            "Region": "Northeast",
             "State": "New York",
             "City": "New York",
             "Product": "Men's Street Footwear",
             "Sales Method": "In-store",
             "Price per Unit": 50.0,
             "Month": 12,
-            "Quarter": 4,
         },
         {
             "Retailer": "Amazon",
-            "Region": "West",
             "State": "California",
             "City": "Los Angeles",
             "Product": "Women's Apparel",
             "Sales Method": "Online",
             "Price per Unit": 65.0,
             "Month": 7,
-            "Quarter": 3,
         },
     ])
 
@@ -193,26 +193,44 @@ with tab_lote:
     if archivo_subido is not None:
         try:
             df_nuevos = pd.read_csv(archivo_subido)
-            columnas_requeridas = [
+            columnas_base = [
                 "Retailer",
-                "Region",
                 "State",
                 "City",
                 "Product",
                 "Sales Method",
                 "Price per Unit",
                 "Month",
-                "Quarter",
             ]
 
             faltantes = [
-                c for c in columnas_requeridas if c not in df_nuevos.columns
+                c for c in columnas_base if c not in df_nuevos.columns
             ]
             if faltantes:
                 st.error(f"Faltan las siguientes columnas en el CSV: {faltantes}")
             else:
+                # Si no vienen Region o Quarter en el CSV, los calculamos solos
+                if "Region" not in df_nuevos.columns:
+                    df_nuevos["Region"] = (
+                        df_nuevos["State"].map(mapa_estado_region).fillna("West")
+                    )
+                if "Quarter" not in df_nuevos.columns:
+                    df_nuevos["Quarter"] = (df_nuevos["Month"] - 1) // 3 + 1
+
+                columnas_modelo = [
+                    "Retailer",
+                    "Region",
+                    "State",
+                    "City",
+                    "Product",
+                    "Sales Method",
+                    "Price per Unit",
+                    "Month",
+                    "Quarter",
+                ]
+
                 predicciones = np.round(
-                    pipeline.predict(df_nuevos[columnas_requeridas])
+                    pipeline.predict(df_nuevos[columnas_modelo])
                 ).astype(int)
                 df_nuevos["Unidades_Predichas"] = np.maximum(0, predicciones)
                 df_nuevos["Ventas_Estimadas_USD"] = (
